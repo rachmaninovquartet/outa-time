@@ -1,0 +1,11 @@
+.idea/
+output/
+__pycache__/
+node_modules/
+logs/
+*.json
+*.out
+*.txt
+*.log
+*.csv
+*.xlsx
