@@ -23,10 +23,25 @@ describe("Phase 1", function () {
     const hhNFT = await NFT.deploy("TIME", "TIME",  ethers.utils.parseUnits('0.24', 'ether'), 2400, 3, 3, 0, "abc", "def", "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D");
     const ownerBalance = await hhNFT.addToPreSaleAllowList([owner.address]);
     expect(await hhNFT.onPreSaleAllowList(owner.address)).to.equal(true);
-    await expect(hhNFT.mint(owner.address, 3)).to.be.reverted;
-    await hhNFT.togglePreSale(true);
-    const owner_minted = await hhNFT.mint(owner.address, 3); //TODO test 4
+
+    //rarity
+    console.log(await hhNFT.testRarity());
+
+    //await expect(hhNFT.mint(owner.address, 3)).to.be.reverted;
+    await hhNFT.togglePreSale(true); //TODO other toggles
+    //const owner_minted = await hhNFT.mint(owner.address, 3); //TODO test 4
+
+    expect(await hhNFT.totalSupply()).to.equal(0);
+    expect(await hhNFT.auctionSupplyRemaining()).to.equal(0);
+    hhNFT.startDutchAuction(ethers.utils.parseUnits('0.24', 'ether'), ethers.utils.parseUnits('0.02', 'ether'), 2400)
+    expect(await hhNFT.auctionSupplyRemaining()).to.equal(2400);
     console.log();
-    expect(await hhNFT.totalSupply()).to.equal(3);
+    await network.provider.send("evm_setNextBlockTimestamp", [1691590822])
+    await network.provider.send("evm_mine")
+    console.log(await hhNFT.getBlocktime());
+    await network.provider.send("evm_increaseTime", [3600])
+    await network.provider.send("evm_mine")
+    console.log(await hhNFT.getBlocktime());
+    expect(await hhNFT.getBlocktime()).to.equal(1691590822 + 3600);
   });
 });

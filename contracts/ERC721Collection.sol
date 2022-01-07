@@ -16,7 +16,7 @@ import "./rarible/LibPart.sol";
 import "./rarible/LibRoyaltiesV2.sol";
 
 // TODO Add contract check by Size AND (tx.origin == msg.sender)
-contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IRoyalties {
+contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//, IRoyalties {
     using SafeMath for uint256;
     using Address for address;
     using Address for address payable;
@@ -46,10 +46,10 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
     mapping(address => bool) private _preSaleAllowList;
     mapping(address => uint256) private _preSaleAllowListClaimed;
 
-    constructor(
+    constructor( //TODO less work in constructor
         string memory name,
         string memory symbol,
-        uint256 price,
+        uint256 price, //TODO is handled in dutch auction
         uint256 maxTotalMint,
         uint256 maxPreSaleMintPerAddress,
         uint256 maxMintPerTransaction,
@@ -131,6 +131,10 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
         return _currentTokenId;
     }
 
+    function auctionSupplyRemaining() public view returns (uint256) {
+        return _totalPerAuction;
+    }
+
     function contractURI() public view returns (string memory) {
         return _contractURI;
     }
@@ -140,6 +144,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
     }
 
     //TODO don't need royalties?
+    /*
     function getRaribleV2Royalties(uint256 id) override external view returns (LibPart.Part[] memory result) {
         result = new LibPart.Part[](1);
 
@@ -149,6 +154,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
         id;
         // avoid unused param warning
     }
+    */
 
     function getInfo() external view returns (
         uint256 price,
@@ -179,7 +185,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
         _preSaleAllowList[msg.sender]
         );
     }
-
+/*
     //TODO royalties
     /**
      * @dev See {IERC165-supportsInterface}.
@@ -238,6 +244,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
      *
      * Useful for gifting by owner or integration with Flair.Finance funding options.
      */
+    /*
     function mint(address to, uint256 count) public nonReentrant {
         // Only allow minters to bypass the payment
         require(hasRole(MINTER_ROLE, msg.sender), "ERC721_COLLECTION/NOT_MINTER_ROLE");
@@ -255,11 +262,13 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
             _incrementTokenId();
         }
     }
+    */
 
     /**
      * Accepts required payment and mints a specified number of tokens to an address.
      * This method also checks if direct purchase is enabled.
      */
+    /*
     function purchase(uint256 count) public payable nonReentrant {
         // Caller cannot be a smart contract to avoid front-running by bots
         require(!msg.sender.isContract(), 'ERC721_COLLECTION/CONTRACT_CANNOT_CALL');
@@ -283,7 +292,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
             _incrementTokenId();
         }
     }
-
+*/
     /**
      * Useful for when user wants to return tokens to get a refund,
      * or when they want to transfer lots of tokens by paying gas fee only once.
@@ -348,5 +357,75 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl, IR
      */
     function _incrementTokenId() private {
         _currentTokenId++;
+    }
+
+    //TODO needed? (below are new methods)
+    function testRarity() public view returns(uint) {
+        return uint(keccak256(abi.encodePacked(block.timestamp, block.difficulty, msg.sender))) % 100;
+    }
+
+    event Buy(address winner, uint amount);
+    //address payable public seller;
+    uint public _startingPrice;
+    uint public _startAt;
+    uint public _expiresAt;
+    uint public _priceDeductionRate;
+    //address public winner;
+    uint public _totalPerAuction;
+
+    function startDutchAuction(uint startingPrice, uint priceDeductionRate, uint totalPerAuction) external onlyOwner {
+        //seller = payable(msg.sender); //TODO probably not needed
+        _startingPrice = _startingPrice;
+        _startAt = block.timestamp;
+        _expiresAt = block.timestamp + 6 hours;
+        _priceDeductionRate = priceDeductionRate;
+        //nft = IERC721(_nft);
+        //nftId = _nftId;
+        _totalPerAuction = totalPerAuction;
+    }
+
+    //TODO is nonreentrant
+    function buyFromDutchAuction(uint256 count) external payable {
+        // Caller cannot be a smart contract to avoid front-running by bots
+        require(!msg.sender.isContract(), 'ERC721_COLLECTION/CONTRACT_CANNOT_CALL');
+        require(block.timestamp < _expiresAt, "auction expired");
+        require(_totalPerAuction > 0, "all nfts sold for this auction");
+
+        uint timeElapsed = block.timestamp - _startAt;
+        uint deduction = _priceDeductionRate * timeElapsed;
+        uint price = _startingPrice - deduction;
+
+        require(msg.value >= price, "ETH < price");
+
+        //winner = msg.sender;
+        //nft.transferFrom(seller, msg.sender, nftId);
+        //seller.transfer(msg.value);
+        //TODO integrate purchase
+             // Make sure minting is allowed
+        requireMintingConditions(msg.sender, count);
+
+        // Sent value matches required ETH amount TODO doesn't seem to do what the comment says!
+        require(_isPurchaseEnabled, 'ERC721_COLLECTION/PURCHASE_DISABLED');
+
+        // Sent value matches required ETH amount TODO dutch auction
+        require(PRICE * count <= msg.value, 'ERC721_COLLECTION/INSUFFICIENT_ETH_AMOUNT');
+
+        if (_isPreSaleActive) {
+            _preSaleAllowListClaimed[msg.sender] += count;
+        }
+
+        for (uint256 i = 0; i < count; i++) {
+            uint256 newTokenId = _getNextTokenId();
+            _safeMint(msg.sender, newTokenId);
+            _incrementTokenId(); //TODO how to deal with per auction supply
+            _totalPerAuction--; //TODO here, in above f() or it's own f()
+        }
+
+        emit Buy(msg.sender, msg.value); //TODO multiple ids etc? metadata?
+    }
+
+    //TODO debug
+    function getBlocktime() public view returns(uint256) {
+        return block.timestamp;
     }
 }
