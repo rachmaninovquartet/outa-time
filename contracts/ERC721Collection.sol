@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 
 pragma solidity 0.8.9;
-
+//TODO turn on solidity optimizer in hardhat.config prior to deploy
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
@@ -10,9 +10,9 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/metatx/ERC2771Context.sol";
 
-import "./opensea/ProxyRegistry.sol"; //TODO is needed
-import "./rarible/IRoyalties.sol";
-import "./rarible/LibPart.sol";
+//import "./opensea/ProxyRegistry.sol"; //TODO is needed
+//import "./rarible/IRoyalties.sol";
+//import "./rarible/LibPart.sol";
 import "./rarible/LibRoyaltiesV2.sol";
 
 // TODO Add contract check by Size AND (tx.origin == msg.sender)
@@ -27,13 +27,18 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
     uint256 public MAX_TOTAL_MINT;
 
     // Fair distribution, thundering-herd mitigation and gas-wars prevention
-    uint256 public MAX_PRE_SALE_MINT_PER_ADDRESS;
-    uint256 public MAX_MINT_PER_TRANSACTION;
+    //uint256 public MAX_PRE_SALE_MINT_PER_ADDRESS;
+    //uint256 public MAX_MINT_PER_TRANSACTION;
+    uint8 public MAX_PER_ADDRESS;
     uint256 public MAX_ALLOWED_GAS_FEE;
 
-    bool private _isPreSaleActive;
+    bool private _isTier1WLActive;
+    bool private _isTier2WLActive;
+    bool private _isTier3WLActive;
+
+    //bool private _isPreSaleActive;
     bool private _isPublicSaleActive;
-    bool private _isPurchaseEnabled;
+    //bool private _isPurchaseEnabled;
     string private _contractURI;
     string private _placeholderURI;
     string private _baseTokenURI;
@@ -43,16 +48,21 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
 
     uint256 private _currentTokenId = 0;
 
-    mapping(address => bool) private _preSaleAllowList;
-    mapping(address => uint256) private _preSaleAllowListClaimed;
+    //mapping(address => bool) private _preSaleAllowList;
+    mapping(address => bool) private _tier1AllowList;
+    mapping(address => bool) private _tier2AllowList;
+    mapping(address => bool) private _tier3AllowList;
+    mapping(address => uint8) private _totalClaimed; //TODO reset per auction?
+    //mapping(address => uint256) private _preSaleAllowListClaimed;
 
     constructor( //TODO less work in constructor
         string memory name,
         string memory symbol,
         uint256 price, //TODO is handled in dutch auction
         uint256 maxTotalMint,
-        uint256 maxPreSaleMintPerAddress,
-        uint256 maxMintPerTransaction,
+        uint8 maxPerAddress, //TODO convert all 256 to 8 that can be
+        //uint256 maxPreSaleMintPerAddress,
+        //uint256 maxMintPerTransaction,
         uint256 maxAllowedGasFee,
         string memory contractURI,
         string memory placeholderURI,
@@ -61,8 +71,9 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
     ) ERC721(name, symbol) {
         PRICE = price;
         MAX_TOTAL_MINT = maxTotalMint;
-        MAX_PRE_SALE_MINT_PER_ADDRESS = maxPreSaleMintPerAddress;
-        MAX_MINT_PER_TRANSACTION = maxMintPerTransaction;
+        MAX_PER_ADDRESS = maxPerAddress;
+        //MAX_PRE_SALE_MINT_PER_ADDRESS = maxPreSaleMintPerAddress;
+        //MAX_MINT_PER_TRANSACTION = maxMintPerTransaction;
         MAX_ALLOWED_GAS_FEE = maxAllowedGasFee;
 
         _contractURI = contractURI;
@@ -82,13 +93,16 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
         _isPublicSaleActive = isActive;
     }
 
+    /*
     function togglePreSale(bool isActive) external onlyOwner {
         _isPreSaleActive = isActive;
     }
-
+*/
+    /*
     function togglePurchaseEnabled(bool isActive) external onlyOwner {
         _isPurchaseEnabled = isActive;
     }
+    */
 
     function setBaseURI(string memory baseURI) external onlyOwner {
         require(!_baseURIFrozen, "ERC721/BASE_URI_FROZEN");
@@ -110,18 +124,17 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
     function setMaxAllowedGasFee(uint256 maxFeeGwei) external onlyOwner {
         MAX_ALLOWED_GAS_FEE = maxFeeGwei;
     }
-
+//todo remove
     function setRaribleRoyaltyAddress(address addr) external onlyOwner {
         _raribleRoyaltyAddress = addr;
     }
-
+//todo ?
     function setOpenSeaProxyRegistryAddress(address addr) external onlyOwner {
         _openSeaProxyRegistryAddress = addr;
     }
 
     function withdraw() external onlyOwner { //TODO do we want https://gnosis-safe.io/
         uint256 balance = address(this).balance;
-
         payable(msg.sender).transfer(balance);
     }
 
@@ -160,29 +173,30 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
         uint256 price,
         uint256 totalSupply,
         uint256 senderBalance,
-        uint256 senderPreSaleClaimed,
+        uint256 totalClaimed,
         uint256 maxTotalMint,
         uint256 maxPreSaleMintPerAddress,
-        uint256 maxMintPerTransaction,
+        //uint256 maxMintPerTransaction,
         uint256 maxAllowedGasFee,
-        bool isPreSaleActive,
-        bool isPublicSaleActive,
-        bool isPurchaseEnabled,
-        bool isSenderAllowlisted
+        //bool isPreSaleActive,
+        bool isPublicSaleActive
+        //bool isPurchaseEnabled,
+        //bool isSenderAllowlisted
     ) {
         return (
         PRICE,
         this.totalSupply(),
         msg.sender == address(0) ? 0 : this.balanceOf(msg.sender),
-        _preSaleAllowListClaimed[msg.sender],
+        //_preSaleAllowListClaimed[msg.sender],
+        _totalClaimed[msg.sender],
         MAX_TOTAL_MINT,
-        MAX_PRE_SALE_MINT_PER_ADDRESS,
-        MAX_MINT_PER_TRANSACTION,
+        MAX_PER_ADDRESS,
+        //MAX_MINT_PER_TRANSACTION,
         MAX_ALLOWED_GAS_FEE,
-        _isPreSaleActive,
-        _isPublicSaleActive,
-        _isPurchaseEnabled,
-        _preSaleAllowList[msg.sender]
+        //_isPreSaleActive,
+        _isPublicSaleActive
+        //_isPurchaseEnabled,
+        //_preSaleAllowList[msg.sender]
         );
     }
 /*
@@ -190,6 +204,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
     /**
      * @dev See {IERC165-supportsInterface}.
      */
+
     function supportsInterface(bytes4 interfaceId)
     public
     view
@@ -200,13 +215,14 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
         if (interfaceId == LibRoyaltiesV2._INTERFACE_ID_ROYALTIES) {
             return true;
         }
-
         return super.supportsInterface(interfaceId);
     }
+
 
     /**
      * Override isApprovedForAll to whitelist user's OpenSea proxy accounts to enable gas-less listings.
      */
+    /* TODO prbably want this
     function isApprovedForAll(address owner, address operator)
     override
     public
@@ -225,20 +241,39 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
 
         return super.isApprovedForAll(owner, operator);
     }
-
-    function addToPreSaleAllowList(address[] calldata addresses) external onlyOwner {
+*/
+    function addToTier(address[] calldata addresses, int8 tier) public onlyOwner {
         for (uint256 i = 0; i < addresses.length; i++) {
             require(addresses[i] != address(0), "Can't add the null address");
-
-            _preSaleAllowList[addresses[i]] = true;
+            if (tier == 1) {
+                _tier1AllowList[addresses[i]] = true;
+            } else if (tier == 2) {
+                _tier2AllowList[addresses[i]] = true;
+            } else {
+                _tier3AllowList[addresses[i]] = true;
+            }
         }
     }
 
-    function onPreSaleAllowList(address addr) external view returns (bool) {
-        return _preSaleAllowList[addr];
+    function addToPreSaleTiers(address[] calldata addresses1, address[] calldata addresses2, address[] calldata addresses3) external onlyOwner {
+        addToTier(addresses1, 1);
+        addToTier(addresses2, 2);
+        addToTier(addresses3, 3);
     }
 
-    /** TODO remove or could be useful
+    function onTier1List(address addr) external view returns (bool) {
+        return _tier1AllowList[addr];
+    }
+
+    function onTier2List(address addr) external view returns (bool) {
+        return _tier2AllowList[addr];
+    }
+
+    function onTier3List(address addr) external view returns (bool) {
+        return _tier3AllowList[addr];
+    }
+
+    /** TODO remove or could be useful, needed for influencers
      * Mints a specified number of tokens to an address without requiring payment.
      * Caller must be an address with MINTER role.
      *
@@ -297,6 +332,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
      * Useful for when user wants to return tokens to get a refund,
      * or when they want to transfer lots of tokens by paying gas fee only once.
      */ //TODO is needed
+    /*
     function transferFromBulk(
         address from,
         address to,
@@ -308,6 +344,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
             _transfer(from, to, tokenIds[i]);
         }
     }
+    */
 
     // PRIVATE
 
@@ -321,16 +358,10 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
      *   - Newly requested number of tokens will not exceed maximum total supply.
      */
     function requireMintingConditions(address to, uint256 count) internal view {
-        require(
-        // Either public sale is active
+        require(// public sale or one of the WL sales
             _isPublicSaleActive ||
-
-            // Or, pre-sale is active AND address is allow-listed AND address have not minted more than max allowed
-            (
-            _isPreSaleActive &&
-            _preSaleAllowList[to] &&
-            _preSaleAllowListClaimed[to] + count <= MAX_PRE_SALE_MINT_PER_ADDRESS
-            )
+            ((_isTier1WLActive && _tier1AllowList[to]) || (_isTier2WLActive && _tier2AllowList[to]) || (_isTier3WLActive && _tier3AllowList[to])
+            && _totalClaimed[to] + count <= MAX_PER_ADDRESS) //TODO total claimed is per auction or ever?
         , "ERC721_COLLECTION/CANNOT_MINT");
 
         // If max-gas fee is configured (avoid gas wars), transaction must not exceed that
@@ -341,7 +372,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
         require(totalSupply() + count <= MAX_TOTAL_MINT, "ERC721_COLLECTION/EXCEEDS_MAX_SUPPLY");
 
         // Number of minted tokens must not exceed maximum limit per transaction
-        require(count <= MAX_MINT_PER_TRANSACTION, "ERC721_COLLECTION/EXCEEDS_MAX_PER_TX");
+        require(count <= MAX_PER_ADDRESS, "ERC721_COLLECTION/EXCEEDS_MAX_PER_TX");
     }
 
     /**
@@ -385,7 +416,7 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
     }
 
     //TODO is nonreentrant
-    function buyFromDutchAuction(uint256 count) external payable {
+    function buyFromDutchAuction(uint8 count) external payable {
         // Caller cannot be a smart contract to avoid front-running by bots
         require(!msg.sender.isContract(), 'ERC721_COLLECTION/CONTRACT_CANNOT_CALL');
         require(block.timestamp < _expiresAt, "auction expired");
@@ -405,14 +436,12 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
         requireMintingConditions(msg.sender, count);
 
         // Sent value matches required ETH amount TODO doesn't seem to do what the comment says!
-        require(_isPurchaseEnabled, 'ERC721_COLLECTION/PURCHASE_DISABLED');
+        //require(_isPurchaseEnabled, 'ERC721_COLLECTION/PURCHASE_DISABLED');
 
         // Sent value matches required ETH amount TODO dutch auction
         require(PRICE * count <= msg.value, 'ERC721_COLLECTION/INSUFFICIENT_ETH_AMOUNT');
 
-        if (_isPreSaleActive) {
-            _preSaleAllowListClaimed[msg.sender] += count;
-        }
+        _totalClaimed[msg.sender] += count;
 
         for (uint256 i = 0; i < count; i++) {
             uint256 newTokenId = _getNextTokenId();
@@ -425,7 +454,17 @@ contract ERC721Collection is ERC721, Ownable, ReentrancyGuard, AccessControl {//
     }
 
     //TODO debug
+
     function getBlocktime() public view returns(uint256) {
         return block.timestamp;
     }
+
+    /*
+    ~ Watch hands closer to midnight = increased rarity (will do in 5 min intervals probably depending on rest of rarity split) 10:10 being the rarest of each of the below variants
+~ Colour of watch hands
+~ Face of watch
+~ Colour of the bezel
+~ Case (gold, silver, platinum etc)
+~ Band (a lot of options to choose from here)
+*/
 }

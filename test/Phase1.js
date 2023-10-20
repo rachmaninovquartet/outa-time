@@ -20,15 +20,17 @@ describe("Phase 1", function () {
         address openSeaProxyRegistryAddress //TODO
         */
 
-    const hhNFT = await NFT.deploy("TIME", "TIME",  ethers.utils.parseUnits('0.24', 'ether'), 2400, 3, 3, 0, "abc", "def", "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D");
-    const ownerBalance = await hhNFT.addToPreSaleAllowList([owner.address]);
-    expect(await hhNFT.onPreSaleAllowList(owner.address)).to.equal(true);
+    const hhNFT = await NFT.deploy("TIME", "TIME",  ethers.utils.parseUnits('0.24', 'ether'), 2400, 3, 0, "abc", "def", "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D");
+    const ownerBalance = await hhNFT.addToTier([owner.address], 1);
+    expect(await hhNFT.onTier1List(owner.address)).to.equal(true);
+    expect(await hhNFT.onTier2List(owner.address)).to.equal(false);
+    console.log("K")
 
     //rarity
     console.log(await hhNFT.testRarity());
 
     //await expect(hhNFT.mint(owner.address, 3)).to.be.reverted;
-    await hhNFT.togglePreSale(true); //TODO other toggles
+    //await hhNFT.togglePreSale(true); //TODO other toggles
     //const owner_minted = await hhNFT.mint(owner.address, 3); //TODO test 4
 
     expect(await hhNFT.totalSupply()).to.equal(0);
